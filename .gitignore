@@ -29,3 +29,7 @@ Thumbs.db
 
 # Streamlit cache
 .streamlit/
+
+data/
+mlflow_tracking/
+artifacts/*.csv
