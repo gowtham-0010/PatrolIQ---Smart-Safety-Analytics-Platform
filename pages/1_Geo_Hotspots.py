@@ -133,15 +133,12 @@ def create_synthetic_geo_data(n_rows: int = 1000, random_state: int = 42) -> pd.
 # Apply clustering using loaded models (with safe fallbacks)
 # -------------------------------------------------------------------
 @st.cache_data
-def apply_geo_clustering(
-    base_df: pd.DataFrame,
-    kmeans_model,
-    dbscan_model,
-    hier_model,
-) -> pd.DataFrame:
+def apply_geo_clustering(base_df: pd.DataFrame) -> pd.DataFrame:
     """
     Use pre-trained models when available. If a model is missing or does not
     support predict, fall back to a small, in-memory fit on the synthetic data.
+    Models are accessed as globals (kmeans_model, dbscan_model, hier_model)
+    to avoid passing unhashable objects into the cached function.
     """
     df = base_df.copy()
     X_geo = df[["Latitude", "Longitude"]].values
@@ -231,7 +228,7 @@ def prepare_map_data(filtered_df: pd.DataFrame, selected_algorithm: str) -> pd.D
 # Build in-memory dataset with clusters
 # -------------------------------------------------------------------
 base_df = create_synthetic_geo_data()
-df = apply_geo_clustering(base_df, kmeans_model, dbscan_model, hier_model)
+df = apply_geo_clustering(base_df)
 
 st.success(f"✅ Synthetic dataset ready with {len(df):,} records and model-based clusters")
 
@@ -439,7 +436,7 @@ else:
                     name=f"Cluster {cluster_id}"
                 ).add_to(m)
 
-                # FIX: use iterrows + bracket indexing to support column names with spaces
+                # iterrows + bracket indexing to support column names with spaces
                 for _, row in cluster_data.iterrows():
                     popup_text = f"Cluster: {row[selected_algorithm]}"
                     if "Primary Type" in map_df.columns:

@@ -17,7 +17,7 @@ artifacts/*.csv
 data/*.csv
 
 # ML models (if large)
-*.pkl
+#*.pkl
 *.joblib
 
 # OS files
