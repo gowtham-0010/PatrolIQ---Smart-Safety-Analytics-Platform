@@ -1,507 +1,422 @@
+# pages/3_Dimensionality_Reduction.py
+
 """
-PatrolIQ - Dimensionality Reduction Visualization
-Page 3: PCA and t-SNE visualization of high-dimensional crime patterns
+PatrolIQ - Dimensionality Reduction Analysis
+Page 3: PCA and t-SNE visualization of crime patterns
+
+Refactored to:
+- Remove CSV dependencies
+- Use synthetic ML dataset
+- Apply PCA (2D) and t-SNE (2D) on numeric features
+- Optionally use pre-trained PCA/TSNE models from artifacts/*.pkl
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import os
 
+import numpy as np
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+import joblib
+
+# -------------------------------------------------------------------
 # Page configuration
+# -------------------------------------------------------------------
 st.set_page_config(
     page_title="Dimensionality Reduction - PatrolIQ",
     page_icon="🔍",
-    layout="wide"
+    layout="wide",
 )
 
-# Header
-st.title("🔍 Dimensionality Reduction")
-st.markdown("### Visualize high-dimensional crime patterns in 2D space")
-
-# Load dimensionality reduction results
-PCA_PATH = 'data/artifacts/pca_components.csv'
-TSNE_PATH = 'data/artifacts/tsne_components.csv'
-
-pca_available = os.path.exists(PCA_PATH)
-tsne_available = os.path.exists(TSNE_PATH)
-
-if not pca_available and not tsne_available:
-    st.error("⚠️ Dimensionality reduction results not found!")
-    st.info("Please run notebooks `06_pca_analysis.ipynb` and `07_tsne_analysis.ipynb` first.")
-    st.stop()
-
-# Load data with caching
-@st.cache_data
-def load_pca_data():
-    if pca_available:
-        df = pd.read_csv(PCA_PATH)
-        if 'Date' in df.columns:
-            df['Date'] = pd.to_datetime(df['Date'])
-        return df
-    return None
-
-@st.cache_data
-def load_tsne_data():
-    if tsne_available:
-        df = pd.read_csv(TSNE_PATH)
-        if 'Date' in df.columns:
-            df['Date'] = pd.to_datetime(df['Date'])
-        return df
-    return None
-
-# Load data
-pca_df = load_pca_data()
-tsne_df = load_tsne_data()
-
-# Display status
-col1, col2 = st.columns(2)
-with col1:
-    if pca_available and pca_df is not None:
-        st.success(f"✅ PCA: {len(pca_df):,} records loaded")
-    else:
-        st.warning("⚠️ PCA data not available")
-
-with col2:
-    if tsne_available and tsne_df is not None:
-        st.success(f"✅ t-SNE: {len(tsne_df):,} records loaded")
-    else:
-        st.warning("⚠️ t-SNE data not available")
-
-# Sidebar
-st.sidebar.header("🎨 Visualization Settings")
-
-# Select visualization method
-viz_method = st.sidebar.radio(
-    "Select Method",
-    ["PCA", "t-SNE", "Compare Both"],
-    disabled=(not pca_available and not tsne_available)
-)
-
-# Color coding selection
-color_by = st.sidebar.selectbox(
-    "Color Points By",
-    ["Primary_Type", "Crime_Severity", "Hour", "Arrest", "District", "Season"]
-)
-
-# Sample size for visualization
-if viz_method in ["PCA", "Compare Both"] and pca_df is not None:
-    max_sample = min(50000, len(pca_df))
-elif tsne_df is not None:
-    max_sample = min(50000, len(tsne_df))
-else:
-    max_sample = 10000
-
-sample_size = st.sidebar.slider(
-    "Sample Size (for performance)",
-    1000, max_sample, min(10000, max_sample), 1000
-)
-
-# Point size
-point_size = st.sidebar.slider("Point Size", 1, 10, 3)
-
-# Opacity
-opacity = st.sidebar.slider("Opacity", 0.1, 1.0, 0.6, 0.1)
-
-# Main content
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔍 Visualizations", "📈 Analysis", "💾 Download"])
-
-# Tab 1: Overview
-with tab1:
-    st.header("Dimensionality Reduction Overview")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("""
-        ### 🎯 Principal Component Analysis (PCA)
-        
-        **Purpose:** Linear dimensionality reduction
-        
-        **Key Features:**
-        - Reduces 20+ features to 2-3 components
-        - Captures 70%+ of variance
-        - Fast and interpretable
-        - Shows linear relationships
-        
-        **Best For:**
-        - Understanding feature importance
-        - Variance analysis
-        - Quick initial exploration
-        """)
-        
-        if pca_available and pca_df is not None:
-            st.info(f"✓ PCA Components Available: {[col for col in pca_df.columns if col.startswith('PC')]}")
-    
-    with col2:
-        st.markdown("""
-        ### 🎨 t-SNE (t-Distributed Stochastic Neighbor Embedding)
-        
-        **Purpose:** Non-linear dimensionality reduction
-        
-        **Key Features:**
-        - Preserves local structure
-        - Reveals complex patterns
-        - Better cluster separation
-        - More intuitive visualization
-        
-        **Best For:**
-        - Discovering hidden patterns
-        - Cluster visualization
-        - Non-linear relationships
-        """)
-        
-        if tsne_available and tsne_df is not None:
-            st.info(f"✓ t-SNE Components Available: {[col for col in tsne_df.columns if col.startswith('tSNE')]}")
-    
-    st.markdown("---")
-    
-    # Comparison table
-    st.subheader("Method Comparison")
-    
-    comparison_data = {
-        "Aspect": ["Type", "Speed", "Scalability", "Interpretability", "Cluster Quality", "Variance Captured"],
-        "PCA": ["Linear", "Fast ⚡", "Excellent", "High", "Good", "Quantifiable"],
-        "t-SNE": ["Non-linear", "Slower 🐢", "Moderate", "Low", "Excellent", "Not quantifiable"]
+# -------------------------------------------------------------------
+# Custom CSS
+# -------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
     }
-    
-    comparison_df = pd.DataFrame(comparison_data)
-    st.dataframe(comparison_df, use_container_width=True)
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-# Tab 2: Visualizations
-with tab2:
-    st.header("Interactive Visualizations")
-    
-    if viz_method == "PCA" and pca_df is not None:
-        st.subheader("PCA Visualization")
-        
-        # Sample data
-        pca_sample = pca_df.sample(n=min(sample_size, len(pca_df)), random_state=42)
-        
-        # Handle crime type grouping
-        if color_by == "Primary_Type":
-            top_crimes = pca_sample['Primary_Type'].value_counts().head(10).index
-            pca_sample['Color_Category'] = pca_sample['Primary_Type'].apply(
-                lambda x: x if x in top_crimes else 'Other'
-            )
-        else:
-            pca_sample['Color_Category'] = pca_sample[color_by]
-        
-        # Create scatter plot
-        fig = px.scatter(
-            pca_sample,
-            x='PC1',
-            y='PC2',
-            color='Color_Category',
-            hover_data=['Primary_Type', 'Crime_Severity', 'Hour'] if 'Primary_Type' in pca_sample.columns else None,
-            title=f'PCA Visualization (colored by {color_by})',
-            labels={'PC1': 'Principal Component 1', 'PC2': 'Principal Component 2'},
-            opacity=opacity
-        )
-        
-        fig.update_traces(marker=dict(size=point_size))
-        fig.update_layout(height=700)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # 3D visualization if PC3 exists
-        if 'PC3' in pca_df.columns:
-            st.subheader("3D PCA Visualization")
-            
-            fig_3d = px.scatter_3d(
-                pca_sample,
-                x='PC1',
-                y='PC2',
-                z='PC3',
-                color='Color_Category',
-                title=f'3D PCA Visualization (colored by {color_by})',
-                opacity=opacity
-            )
-            
-            fig_3d.update_traces(marker=dict(size=point_size))
-            fig_3d.update_layout(height=700)
-            st.plotly_chart(fig_3d, use_container_width=True)
-    
-    elif viz_method == "t-SNE" and tsne_df is not None:
-        st.subheader("t-SNE Visualization")
-        
-        # Sample data
-        tsne_sample = tsne_df.sample(n=min(sample_size, len(tsne_df)), random_state=42)
-        
-        # Handle crime type grouping
-        if color_by == "Primary_Type":
-            top_crimes = tsne_sample['Primary_Type'].value_counts().head(10).index
-            tsne_sample['Color_Category'] = tsne_sample['Primary_Type'].apply(
-                lambda x: x if x in top_crimes else 'Other'
-            )
-        else:
-            tsne_sample['Color_Category'] = tsne_sample[color_by]
-        
-        # Create scatter plot
-        fig = px.scatter(
-            tsne_sample,
-            x='tSNE1',
-            y='tSNE2',
-            color='Color_Category',
-            hover_data=['Primary_Type', 'Crime_Severity', 'Hour'] if 'Primary_Type' in tsne_sample.columns else None,
-            title=f't-SNE Visualization (colored by {color_by})',
-            labels={'tSNE1': 't-SNE Component 1', 'tSNE2': 't-SNE Component 2'},
-            opacity=opacity
-        )
-        
-        fig.update_traces(marker=dict(size=point_size))
-        fig.update_layout(height=700)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    elif viz_method == "Compare Both" and pca_df is not None and tsne_df is not None:
-        st.subheader("Side-by-Side Comparison")
-        
-        # Find common indices
-        common_indices = pca_df.index.intersection(tsne_df.index)
-        
-        if len(common_indices) > 100:
-            # Sample from common indices
-            sample_indices = np.random.choice(common_indices, min(sample_size, len(common_indices)), replace=False)
-            
-            pca_sample = pca_df.loc[sample_indices]
-            tsne_sample = tsne_df.loc[sample_indices]
-            
-            # Handle crime type grouping for PCA
-            if color_by == "Primary_Type":
-                top_crimes = pca_sample['Primary_Type'].value_counts().head(5).index
-                pca_sample['Color_Category'] = pca_sample['Primary_Type'].apply(
-                    lambda x: x if x in top_crimes else 'Other'
-                )
-                tsne_sample['Color_Category'] = tsne_sample['Primary_Type'].apply(
-                    lambda x: x if x in top_crimes else 'Other'
-                )
-            else:
-                pca_sample['Color_Category'] = pca_sample[color_by]
-                tsne_sample['Color_Category'] = tsne_sample[color_by]
-            
-            # Create subplots
-            fig = make_subplots(
-                rows=1, cols=2,
-                subplot_titles=('PCA', 't-SNE'),
-                horizontal_spacing=0.1
-            )
-            
-            # Get unique categories and create color map
-            unique_categories = sorted(pca_sample['Color_Category'].unique())
-            colors = px.colors.qualitative.Plotly
-            color_map = {cat: colors[i % len(colors)] for i, cat in enumerate(unique_categories)}
-            
-            # Add PCA traces
-            for category in unique_categories:
-                mask = pca_sample['Color_Category'] == category
-                fig.add_trace(
-                    go.Scatter(
-                        x=pca_sample[mask]['PC1'],
-                        y=pca_sample[mask]['PC2'],
-                        mode='markers',
-                        name=str(category),
-                        marker=dict(size=point_size, color=color_map[category], opacity=opacity),
-                        legendgroup=str(category),
-                        showlegend=True
-                    ),
-                    row=1, col=1
-                )
-            
-            # Add t-SNE traces
-            for category in unique_categories:
-                mask = tsne_sample['Color_Category'] == category
-                fig.add_trace(
-                    go.Scatter(
-                        x=tsne_sample[mask]['tSNE1'],
-                        y=tsne_sample[mask]['tSNE2'],
-                        mode='markers',
-                        name=str(category),
-                        marker=dict(size=point_size, color=color_map[category], opacity=opacity),
-                        legendgroup=str(category),
-                        showlegend=False
-                    ),
-                    row=1, col=2
-                )
-            
-            fig.update_xaxes(title_text="PC1", row=1, col=1)
-            fig.update_yaxes(title_text="PC2", row=1, col=1)
-            fig.update_xaxes(title_text="t-SNE1", row=1, col=2)
-            fig.update_yaxes(title_text="t-SNE2", row=1, col=2)
-            
-            fig.update_layout(height=600, title_text=f"PCA vs t-SNE Comparison (colored by {color_by})")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Comparison insights
-            st.info("""
-            **Comparison Insights:**
-            - **PCA** shows the linear relationships and maintains global structure
-            - **t-SNE** reveals local patterns and creates more distinct clusters
-            - Both methods complement each other in understanding crime patterns
-            """)
-        else:
-            st.warning("Not enough common data points for comparison")
+# -------------------------------------------------------------------
+# Header
+# -------------------------------------------------------------------
+st.title("🔍 Dimensionality Reduction")
+st.markdown("### Visualize high-dimensional crime patterns using PCA and t-SNE")
 
-# Tab 3: Analysis
-with tab3:
-    st.header("Detailed Analysis")
-    
-    if pca_df is not None:
-        st.subheader("📊 PCA Analysis")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # PCA statistics
-            st.markdown("**PCA Statistics:**")
-            pca_components = [col for col in pca_df.columns if col.startswith('PC')]
-            st.write(f"- Components available: {len(pca_components)}")
-            st.write(f"- Total records: {len(pca_df):,}")
-            
-            if 'Crime_Severity' in pca_df.columns:
-                st.write(f"- Avg crime severity: {pca_df['Crime_Severity'].mean():.2f}/5")
-        
-        with col2:
-            # Component distribution
-            if len(pca_components) >= 2:
-                fig = go.Figure()
-                fig.add_trace(go.Histogram(x=pca_df['PC1'], name='PC1', opacity=0.7))
-                fig.add_trace(go.Histogram(x=pca_df['PC2'], name='PC2', opacity=0.7))
-                fig.update_layout(
-                    title='Distribution of Principal Components',
-                    xaxis_title='Component Value',
-                    yaxis_title='Frequency',
-                    barmode='overlay',
-                    height=300
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        
-        # Crime type distribution in PC space
-        if 'Primary_Type' in pca_df.columns:
-            st.markdown("**Crime Type Distribution in PCA Space:**")
-            
-            top_crimes = pca_df['Primary_Type'].value_counts().head(10)
-            
-            fig = px.bar(
-                x=top_crimes.index,
-                y=top_crimes.values,
-                labels={'x': 'Crime Type', 'y': 'Count'},
-                title='Top 10 Crime Types in PCA Dataset'
-            )
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown("---")
-    
-    if tsne_df is not None:
-        st.subheader("🎨 t-SNE Analysis")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # t-SNE statistics
-            st.markdown("**t-SNE Statistics:**")
-            st.write(f"- Total records: {len(tsne_df):,}")
-            
-            if 'Crime_Severity' in tsne_df.columns:
-                st.write(f"- Avg crime severity: {tsne_df['Crime_Severity'].mean():.2f}/5")
-            
-            if 'Hour' in tsne_df.columns:
-                st.write(f"- Peak hour: {tsne_df['Hour'].mode()[0]}:00")
-        
-        with col2:
-            # Component distribution
-            fig = go.Figure()
-            fig.add_trace(go.Histogram(x=tsne_df['tSNE1'], name='tSNE1', opacity=0.7))
-            fig.add_trace(go.Histogram(x=tsne_df['tSNE2'], name='tSNE2', opacity=0.7))
-            fig.update_layout(
-                title='Distribution of t-SNE Components',
-                xaxis_title='Component Value',
-                yaxis_title='Frequency',
-                barmode='overlay',
-                height=300
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Density plot
-        st.markdown("**t-SNE Density Distribution:**")
-        
-        sample_for_density = tsne_df.sample(n=min(20000, len(tsne_df)), random_state=42)
-        
-        fig = px.density_contour(
-            sample_for_density,
-            x='tSNE1',
-            y='tSNE2',
-            title='Crime Density in t-SNE Space'
-        )
-        fig.update_traces(contours_coloring="fill", contours_showlabels=True)
-        fig.update_layout(height=500)
-        st.plotly_chart(fig, use_container_width=True)
+# -------------------------------------------------------------------
+# Optional pre-trained models
+# -------------------------------------------------------------------
+PCA_MODEL_PATH = os.path.join("artifacts", "pca_model.pkl")
+TSNE_MODEL_PATH = os.path.join("artifacts", "tsne_model.pkl")
 
-# Tab 4: Download
-with tab4:
-    st.header("💾 Download Dimensionality Reduction Data")
-    
-    st.markdown("""
-    Download the dimensionality reduction results for further analysis or visualization in other tools.
-    """)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if pca_df is not None:
-            st.subheader("📊 PCA Data")
-            
-            csv = pca_df.to_csv(index=False).encode('utf-8')
-            
-            st.download_button(
-                label="📥 Download PCA Components (CSV)",
-                data=csv,
-                file_name="pca_components.csv",
-                mime="text/csv"
-            )
-            
-            st.metric("Records", f"{len(pca_df):,}")
-            st.metric("Components", len([col for col in pca_df.columns if col.startswith('PC')]))
-        else:
-            st.warning("PCA data not available")
-    
-    with col2:
-        if tsne_df is not None:
-            st.subheader("🎨 t-SNE Data")
-            
-            csv = tsne_df.to_csv(index=False).encode('utf-8')
-            
-            st.download_button(
-                label="📥 Download t-SNE Components (CSV)",
-                data=csv,
-                file_name="tsne_components.csv",
-                mime="text/csv"
-            )
-            
-            st.metric("Records", f"{len(tsne_df):,}")
-            st.metric("Components", 2)
-        else:
-            st.warning("t-SNE data not available")
-    
-    # Data preview
-    st.markdown("---")
-    st.subheader("Data Preview")
-    
-    preview_method = st.radio("Select data to preview", ["PCA", "t-SNE"])
-    
-    if preview_method == "PCA" and pca_df is not None:
-        st.dataframe(pca_df.head(100), use_container_width=True)
-    elif preview_method == "t-SNE" and tsne_df is not None:
-        st.dataframe(tsne_df.head(100), use_container_width=True)
+
+@st.cache_resource
+def load_reduction_model(path: str):
+    if os.path.exists(path):
+        try:
+            return joblib.load(path)
+        except Exception:
+            return None
+    return None
+
+
+pca_model_pretrained = load_reduction_model(PCA_MODEL_PATH)
+tsne_model_pretrained = load_reduction_model(TSNE_MODEL_PATH)
+
+if pca_model_pretrained is None:
+    st.info(
+        "No pre-trained PCA model found in `artifacts/pca_model.pkl`. "
+        "Using in-app PCA for visualization."
+    )
+if tsne_model_pretrained is None:
+    st.info(
+        "No pre-trained t-SNE model found in `artifacts/tsne_model.pkl`. "
+        "Using in-app t-SNE for visualization."
+    )
+
+# -------------------------------------------------------------------
+# Synthetic ML dataset
+# -------------------------------------------------------------------
+@st.cache_data
+def create_synthetic_ml_data(n_rows: int = 1000, random_state: int = 42) -> pd.DataFrame:
+    rng = np.random.default_rng(random_state)
+
+    latitudes = rng.uniform(41.6, 42.05, size=n_rows)
+    longitudes = rng.uniform(-87.95, -87.5, size=n_rows)
+    primary_types = rng.choice(
+        ["THEFT", "BATTERY", "NARCOTICS", "BURGLARY", "ASSAULT", "CRIMINAL DAMAGE"],
+        size=n_rows,
+    )
+    crime_severity = rng.integers(1, 6, size=n_rows)
+    districts = rng.integers(1, 26, size=n_rows)
+    wards = rng.integers(1, 51, size=n_rows)
+    arrests = rng.integers(0, 2, size=n_rows)
+
+    df = pd.DataFrame(
+        {
+            "Latitude": latitudes,
+            "Longitude": longitudes,
+            "Primary Type": primary_types,
+            "Crime_Severity": crime_severity,
+            "District": districts,
+            "Ward": wards,
+            "Arrest": arrests,
+        }
+    )
+
+    # Simple clustering for coloring (e.g., spatial clusters)
+    X_cluster = df[["Latitude", "Longitude"]].values
+    km = KMeans(n_clusters=6, random_state=42)
+    df["ML_Cluster"] = km.fit_predict(X_cluster)
+
+    return df
+
+
+# -------------------------------------------------------------------
+# Apply PCA and t-SNE
+# -------------------------------------------------------------------
+@st.cache_data
+def apply_pca_tsne(df: pd.DataFrame) -> pd.DataFrame:
+    numeric_cols = ["Crime_Severity", "Arrest", "District", "Ward"]
+    X_num = df[numeric_cols].astype(float).values
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_num)
+
+    # PCA
+    if pca_model_pretrained is not None and hasattr(pca_model_pretrained, "transform"):
+        try:
+            pca_result = pca_model_pretrained.transform(X_scaled)
+            pca_result = pca_result[:, :2]
+        except Exception:
+            pca = PCA(n_components=2, random_state=42)
+            pca_result = pca.fit_transform(X_scaled)
     else:
-        st.warning(f"{preview_method} data not available")
+        pca = PCA(n_components=2, random_state=42)
+        pca_result = pca.fit_transform(X_scaled)
 
+    # t-SNE
+    if tsne_model_pretrained is not None and hasattr(tsne_model_pretrained, "fit_transform"):
+        try:
+            tsne_result = tsne_model_pretrained.fit_transform(X_scaled)
+        except Exception:
+            tsne = TSNE(
+                n_components=2,
+                learning_rate="auto",
+                init="random",
+                perplexity=30,
+                random_state=42,
+            )
+            tsne_result = tsne.fit_transform(X_scaled)
+    else:
+        tsne = TSNE(
+            n_components=2,
+            learning_rate="auto",
+            init="random",
+            perplexity=30,
+            random_state=42,
+        )
+        tsne_result = tsne.fit_transform(X_scaled)
+
+    df_out = df.copy()
+    df_out["PCA_1"] = pca_result[:, 0]
+    df_out["PCA_2"] = pca_result[:, 1]
+    df_out["TSNE_1"] = tsne_result[:, 0]
+    df_out["TSNE_2"] = tsne_result[:, 1]
+
+    return df_out
+
+
+# -------------------------------------------------------------------
+# Build dataset
+# -------------------------------------------------------------------
+base_df = create_synthetic_ml_data()
+df = apply_pca_tsne(base_df)
+
+st.success(f"✅ Synthetic ML dataset ready with {len(df):,} records and PCA/t-SNE embeddings")
+
+# -------------------------------------------------------------------
+# Sidebar filters
+# -------------------------------------------------------------------
+st.sidebar.header("🔍 Filters")
+
+cluster_ids = sorted(df["ML_Cluster"].unique())
+selected_clusters = st.sidebar.multiselect(
+    "Select Clusters",
+    cluster_ids,
+    default=cluster_ids[: min(5, len(cluster_ids))],
+)
+
+crime_types = sorted(df["Primary Type"].unique())
+selected_crimes = st.sidebar.multiselect(
+    "Filter by Crime Type",
+    crime_types,
+    default=[],
+)
+
+severity_range = st.sidebar.slider(
+    "Crime Severity",
+    min_value=1,
+    max_value=5,
+    value=(1, 5),
+)
+
+arrest_filter = st.sidebar.selectbox(
+    "Arrest Status",
+    ["All", "Arrested", "Not Arrested"],
+    index=0,
+)
+
+# -------------------------------------------------------------------
+# Apply filters
+# -------------------------------------------------------------------
+filtered_df = df.copy()
+
+if selected_clusters:
+    filtered_df = filtered_df[filtered_df["ML_Cluster"].isin(selected_clusters)]
+
+if selected_crimes:
+    filtered_df = filtered_df[filtered_df["Primary Type"].isin(selected_crimes)]
+
+filtered_df = filtered_df[
+    (filtered_df["Crime_Severity"] >= severity_range[0])
+    & (filtered_df["Crime_Severity"] <= severity_range[1])
+]
+
+if arrest_filter == "Arrested":
+    filtered_df = filtered_df[filtered_df["Arrest"] == 1]
+elif arrest_filter == "Not Arrested":
+    filtered_df = filtered_df[filtered_df["Arrest"] == 0]
+
+st.sidebar.markdown(f"**Filtered Records:** {len(filtered_df):,}")
+
+# -------------------------------------------------------------------
+# Main content tabs
+# -------------------------------------------------------------------
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["🧮 PCA View", "🌈 t-SNE View", "📊 Feature Space", "💾 Download"]
+)
+
+# ---------------- Tab 1: PCA View ----------------
+with tab1:
+    st.header("PCA (2D) Projection")
+
+    if len(filtered_df) > 0:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("PCA Colored by Cluster")
+            fig_pca_cluster = px.scatter(
+                filtered_df,
+                x="PCA_1",
+                y="PCA_2",
+                color="ML_Cluster",
+                hover_data=["Primary Type", "Crime_Severity", "Arrest"],
+                title="PCA Projection (Colored by ML Cluster)",
+            )
+            fig_pca_cluster.update_layout(height=500)
+            st.plotly_chart(fig_pca_cluster, use_container_width=True)
+
+        with col2:
+            st.subheader("PCA Colored by Crime Type")
+            fig_pca_type = px.scatter(
+                filtered_df,
+                x="PCA_1",
+                y="PCA_2",
+                color="Primary Type",
+                hover_data=["Crime_Severity", "Arrest"],
+                title="PCA Projection (Colored by Crime Type)",
+            )
+            fig_pca_type.update_layout(height=500)
+            st.plotly_chart(fig_pca_type, use_container_width=True)
+    else:
+        st.warning("No data available with current filters")
+
+# ---------------- Tab 2: t-SNE View ----------------
+with tab2:
+    st.header("t-SNE (2D) Embedding")
+
+    if len(filtered_df) > 0:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("t-SNE Colored by Cluster")
+            fig_tsne_cluster = px.scatter(
+                filtered_df,
+                x="TSNE_1",
+                y="TSNE_2",
+                color="ML_Cluster",
+                hover_data=["Primary Type", "Crime_Severity", "Arrest"],
+                title="t-SNE Embedding (Colored by ML Cluster)",
+            )
+            fig_tsne_cluster.update_layout(height=500)
+            st.plotly_chart(fig_tsne_cluster, use_container_width=True)
+
+        with col2:
+            st.subheader("t-SNE Colored by Crime Type")
+            fig_tsne_type = px.scatter(
+                filtered_df,
+                x="TSNE_1",
+                y="TSNE_2",
+                color="Primary Type",
+                hover_data=["Crime_Severity", "Arrest"],
+                title="t-SNE Embedding (Colored by Crime Type)",
+            )
+            fig_tsne_type.update_layout(height=500)
+            st.plotly_chart(fig_tsne_type, use_container_width=True)
+    else:
+        st.warning("No data available with current filters")
+
+# ---------------- Tab 3: Feature Space ----------------
+with tab3:
+    st.header("Feature Space Distributions")
+
+    if len(filtered_df) > 0:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Crime Severity by Cluster")
+            fig_sev = px.box(
+                filtered_df,
+                x="ML_Cluster",
+                y="Crime_Severity",
+                color="ML_Cluster",
+                title="Crime Severity Distribution by Cluster",
+                labels={"ML_Cluster": "Cluster"},
+            )
+            fig_sev.update_layout(height=450)
+            st.plotly_chart(fig_sev, use_container_width=True)
+
+        with col2:
+            st.subheader("District Distribution")
+            fig_dist = px.histogram(
+                filtered_df,
+                x="District",
+                color="ML_Cluster",
+                barmode="group",
+                title="District Distribution by Cluster",
+            )
+            fig_dist.update_layout(height=450)
+            st.plotly_chart(fig_dist, use_container_width=True)
+
+        st.subheader("Ward vs Severity (Colored by Cluster)")
+        fig_scatter_fs = px.scatter(
+            filtered_df,
+            x="Ward",
+            y="Crime_Severity",
+            color="ML_Cluster",
+            hover_data=["Primary Type", "Arrest"],
+            title="Ward vs Crime Severity by Cluster",
+        )
+        fig_scatter_fs.update_layout(height=450)
+        st.plotly_chart(fig_scatter_fs, use_container_width=True)
+    else:
+        st.warning("No data available with current filters")
+
+# ---------------- Tab 4: Download ----------------
+with tab4:
+    st.header("💾 Download Embedding Data")
+
+    st.markdown(
+        """
+        Download the filtered dimensionality reduction results for further analysis.
+        The CSV file includes PCA and t-SNE coordinates for each record.
+        """
+    )
+
+    if len(filtered_df) > 0:
+        download_df = filtered_df[
+            [
+                "Latitude",
+                "Longitude",
+                "Primary Type",
+                "Crime_Severity",
+                "District",
+                "Ward",
+                "Arrest",
+                "ML_Cluster",
+                "PCA_1",
+                "PCA_2",
+                "TSNE_1",
+                "TSNE_2",
+            ]
+        ].copy()
+
+        csv = download_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="📥 Download Embedding Data (CSV)",
+            data=csv,
+            file_name="dimensionality_reduction_filtered.csv",
+            mime="text/csv",
+        )
+
+        st.subheader("Data Preview")
+        st.dataframe(download_df.head(100), use_container_width=True)
+    else:
+        st.warning("No data available for download with current filters")
+
+# -------------------------------------------------------------------
 # Footer
+# -------------------------------------------------------------------
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #666;">
-    <p>Dimensionality Reduction Analysis | PatrolIQ Platform</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    """
+    <div style="text-align: center; color: #666;">
+        <p>Dimensionality Reduction Analysis | PatrolIQ Platform</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
