@@ -3,7 +3,7 @@ PatrolIQ - Geographic Crime Hotspots Analysis
 Page 1: Interactive geographic visualization and clustering results
 
 Refactored to:
-- Load pre-trained clustering models from artifacts/*.pkl
+- Load pre-trained clustering models from artifacts/*.pkl (if available)
 - Generate a small synthetic dataset for visualization
 - Remove dependency on large CSV files
 """
@@ -439,15 +439,16 @@ else:
                     name=f"Cluster {cluster_id}"
                 ).add_to(m)
 
-                for row in cluster_data.itertuples(index=False):
-                    popup_text = f"Cluster: {getattr(row, selected_algorithm)}"
+                # FIX: use iterrows + bracket indexing to support column names with spaces
+                for _, row in cluster_data.iterrows():
+                    popup_text = f"Cluster: {row[selected_algorithm]}"
                     if "Primary Type" in map_df.columns:
-                        popup_text += f"<br>Crime: {getattr(row, 'Primary Type')}"
+                        popup_text += f"<br>Crime: {row['Primary Type']}"
                     if "Crime_Severity" in map_df.columns:
-                        popup_text += f"<br>Severity: {getattr(row, 'Crime_Severity')}"
+                        popup_text += f"<br>Severity: {row['Crime_Severity']}"
 
                     folium.Marker(
-                        location=[getattr(row, "Latitude"), getattr(row, "Longitude")],
+                        location=[row["Latitude"], row["Longitude"]],
                         popup=folium.Popup(popup_text, max_width=250),
                         icon=folium.Icon(color=color, icon="info-sign"),
                     ).add_to(cluster_group)
