@@ -1,17 +1,16 @@
+# geo_hotspot.py  (pages/1_Geo_Hotspots.py)
+
 """
 PatrolIQ - Geographic Crime Hotspots Analysis
 Page 1: Interactive geographic visualization and clustering results
 
-Refactored to:
-- Load pre-trained clustering models from artifacts/*.pkl (if available)
-- Generate a small synthetic dataset for visualization
-- Remove dependency on large CSV files
+Final architecture:
+- Notebook trains on full dataset, writes artifacts/geo_clustered_sample.csv
+- Streamlit ONLY reads preprocessed sample CSV (no synthetic data, no retraining)
 """
 
 import os
-import datetime as dt
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -19,8 +18,6 @@ import plotly.graph_objects as go
 import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
-import joblib
-from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 
 # -------------------------------------------------------------------
 # Page configuration
@@ -55,185 +52,33 @@ st.title("🗺️ Geographic Crime Hotspots")
 st.markdown("### Interactive crime hotspot analysis across Chicago")
 
 # -------------------------------------------------------------------
-# Model paths
+# Load preprocessed geo sample
 # -------------------------------------------------------------------
-MODEL_DIR = "artifacts"
-KMEANS_PATH = os.path.join(MODEL_DIR, "kmeans_model.pkl")
-DBSCAN_PATH = os.path.join(MODEL_DIR, "dbscan_model.pkl")
-HIER_PATH = os.path.join(MODEL_DIR, "hierarchical_model.pkl")
-
-# -------------------------------------------------------------------
-# Cached model loading
-# -------------------------------------------------------------------
-@st.cache_resource
-def load_model(path):
-    if os.path.exists(path):
-        try:
-            return joblib.load(path)
-        except Exception:
-            return None
-    return None
+GEO_SAMPLE_PATH = "artifacts/geo_clustered_sample.csv"
 
 
-kmeans_model = load_model(KMEANS_PATH)
-dbscan_model = load_model(DBSCAN_PATH)
-hier_model = load_model(HIER_PATH)
-
-if not any([kmeans_model, dbscan_model, hier_model]):
-    st.warning(
-        "No clustering model files found in `artifacts/`. "
-        "Please ensure kmeans_model.pkl, dbscan_model.pkl, hierarchical_model.pkl are present."
-    )
-
-# -------------------------------------------------------------------
-# Synthetic data generation (small, in-memory demo set)
-# -------------------------------------------------------------------
 @st.cache_data
-def create_synthetic_geo_data(n_rows: int = 1000, random_state: int = 42) -> pd.DataFrame:
-    """
-    Generate a compact synthetic dataset that mimics Chicago crime data
-    for demonstration on Streamlit Cloud (no large CSVs).
-    """
-    rng = np.random.default_rng(random_state)
-
-    # Rough bounding box for Chicago
-    latitudes = rng.uniform(41.6, 42.05, size=n_rows)
-    longitudes = rng.uniform(-87.95, -87.5, size=n_rows)
-
-    # Dates over one year
-    start_date = dt.date(2023, 1, 1)
-    dates = [start_date + dt.timedelta(days=int(d)) for d in rng.integers(0, 365, size=n_rows)]
-
-    primary_types = rng.choice(
-        ["THEFT", "BATTERY", "NARCOTICS", "BURGLARY", "ASSAULT", "CRIMINAL DAMAGE"],
-        size=n_rows,
-    )
-    crime_severity = rng.integers(1, 6, size=n_rows)  # 1–5
-    districts = rng.integers(1, 26, size=n_rows)
-    wards = rng.integers(1, 51, size=n_rows)
-    arrests = rng.integers(0, 2, size=n_rows)
-
-    df = pd.DataFrame(
-        {
-            "Date": pd.to_datetime(dates),
-            "Latitude": latitudes,
-            "Longitude": longitudes,
-            "Primary Type": primary_types,
-            "Crime_Severity": crime_severity,
-            "District": districts,
-            "Ward": wards,
-            "Arrest": arrests,
-        }
-    )
-
+def load_geo_data(path: str) -> pd.DataFrame:
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"])
     return df
 
 
-# -------------------------------------------------------------------
-# Apply clustering using loaded models (with safe fallbacks)
-# -------------------------------------------------------------------
-@st.cache_data
-def apply_geo_clustering(base_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Use pre-trained models when available. If a model is missing or does not
-    support predict, fall back to a small, in-memory fit on the synthetic data.
-    Models are accessed as globals (kmeans_model, dbscan_model, hier_model)
-    to avoid passing unhashable objects into the cached function.
-    """
-    df = base_df.copy()
-    X_geo = df[["Latitude", "Longitude"]].values
+df = load_geo_data(GEO_SAMPLE_PATH)
 
-    # KMeans
-    if kmeans_model is not None and hasattr(kmeans_model, "predict"):
-        try:
-            df["KMeans_Cluster"] = kmeans_model.predict(X_geo)
-        except Exception:
-            km_fallback = KMeans(n_clusters=6, random_state=42)
-            df["KMeans_Cluster"] = km_fallback.fit_predict(X_geo)
-    else:
-        km_fallback = KMeans(n_clusters=6, random_state=42)
-        df["KMeans_Cluster"] = km_fallback.fit_predict(X_geo)
-
-    # DBSCAN
-    if dbscan_model is not None and hasattr(dbscan_model, "fit_predict"):
-        try:
-            df["DBSCAN_Cluster"] = dbscan_model.fit_predict(X_geo)
-        except Exception:
-            db_fallback = DBSCAN(eps=0.01, min_samples=10)
-            df["DBSCAN_Cluster"] = db_fallback.fit_predict(X_geo)
-    else:
-        db_fallback = DBSCAN(eps=0.01, min_samples=10)
-        df["DBSCAN_Cluster"] = db_fallback.fit_predict(X_geo)
-
-    # Hierarchical
-    if hier_model is not None and hasattr(hier_model, "fit_predict"):
-        try:
-            df["Hierarchical_Cluster"] = hier_model.fit_predict(X_geo)
-        except Exception:
-            hier_fallback = AgglomerativeClustering(n_clusters=6, linkage="ward")
-            df["Hierarchical_Cluster"] = hier_fallback.fit_predict(X_geo)
-    else:
-        hier_fallback = AgglomerativeClustering(n_clusters=6, linkage="ward")
-        df["Hierarchical_Cluster"] = hier_fallback.fit_predict(X_geo)
-
-    # Final cluster (simple choice: same as KMeans for demo)
-    df["Final_Geo_Cluster"] = df["KMeans_Cluster"]
-
-    return df
-
+if df.empty:
+    st.error(
+        "Geographic clustered sample not found or empty.\n"
+        "Expected: artifacts/geo_clustered_sample.csv"
+    )
+else:
+    st.success(f"✅ Loaded {len(df):,} preprocessed geo records from artifacts")
 
 # -------------------------------------------------------------------
-# Filtering helpers (same UI logic, new backend)
-# -------------------------------------------------------------------
-@st.cache_data
-def prepare_filtered_data(
-    df: pd.DataFrame,
-    selected_algorithm: str,
-    selected_clusters,
-    selected_crimes,
-    date_range,
-) -> pd.DataFrame:
-    filtered_df = df.copy()
-
-    if selected_clusters:
-        filtered_df = filtered_df[filtered_df[selected_algorithm].isin(selected_clusters)]
-
-    if selected_crimes:
-        filtered_df = filtered_df[filtered_df["Primary Type"].isin(selected_crimes)]
-
-    if len(date_range) == 2:
-        filtered_df = filtered_df[
-            (filtered_df["Date"].dt.date >= date_range[0])
-            & (filtered_df["Date"].dt.date <= date_range[1])
-        ]
-
-    return filtered_df
-
-
-@st.cache_data
-def prepare_map_data(filtered_df: pd.DataFrame, selected_algorithm: str) -> pd.DataFrame:
-    map_cols = ["Latitude", "Longitude", selected_algorithm]
-    optional_cols = ["Primary Type", "Crime_Severity", "Arrest"]
-
-    available_cols = map_cols + [col for col in optional_cols if col in filtered_df.columns]
-    map_df = filtered_df[available_cols].copy()
-
-    if len(map_df) > 3000:
-        map_df = map_df.sample(n=3000, random_state=42).copy()
-
-    return map_df
-
-
-# -------------------------------------------------------------------
-# Build in-memory dataset with clusters
-# -------------------------------------------------------------------
-base_df = create_synthetic_geo_data()
-df = apply_geo_clustering(base_df)
-
-st.success(f"✅ Synthetic dataset ready with {len(df):,} records and model-based clusters")
-
-# -------------------------------------------------------------------
-# Sidebar filters (unchanged UI)
+# Sidebar filters
 # -------------------------------------------------------------------
 st.sidebar.header("🔍 Filters")
 
@@ -256,7 +101,7 @@ else:
         else 0,
     )
 
-    # Unique clusters (exclude -1 for DBSCAN noise)
+    # Unique clusters (exclude DBSCAN noise -1)
     if selected_algorithm == "DBSCAN_Cluster":
         unique_clusters = sorted(
             [c for c in df[selected_algorithm].dropna().unique() if c != -1]
@@ -284,27 +129,34 @@ else:
     if "Date" in df.columns and not df.empty:
         date_range = st.sidebar.date_input(
             "Date Range",
-            value=(df["Date"].min(), df["Date"].max()),
-            min_value=df["Date"].min(),
-            max_value=df["Date"].max(),
+            value=(df["Date"].dt.date.min(), df["Date"].dt.date.max()),
+            min_value=df["Date"].dt.date.min(),
+            max_value=df["Date"].dt.date.max(),
         )
     else:
         date_range = ()
 
-    filtered_df = prepare_filtered_data(
-        df,
-        selected_algorithm,
-        tuple(selected_clusters) if selected_clusters else tuple(),
-        tuple(selected_crimes) if selected_crimes else tuple(),
-        tuple(date_range) if len(date_range) == 2 else tuple(),
-    )
+    # -------------------------------------------------------------------
+    # Apply filters
+    # -------------------------------------------------------------------
+    filtered_df = df.copy()
 
-    map_df = prepare_map_data(filtered_df, selected_algorithm)
+    if selected_clusters:
+        filtered_df = filtered_df[filtered_df[selected_algorithm].isin(selected_clusters)]
+
+    if selected_crimes:
+        filtered_df = filtered_df[filtered_df["Primary Type"].isin(selected_crimes)]
+
+    if len(date_range) == 2 and "Date" in filtered_df.columns:
+        filtered_df = filtered_df[
+            (filtered_df["Date"].dt.date >= date_range[0])
+            & (filtered_df["Date"].dt.date <= date_range[1])
+        ]
 
     st.sidebar.markdown(f"**Filtered Records:** {len(filtered_df):,}")
 
     # -------------------------------------------------------------------
-    # Main content – Tabs (UI unchanged)
+    # Main content
     # -------------------------------------------------------------------
     tab1, tab2, tab3, tab4 = st.tabs(
         ["📊 Overview", "🗺️ Interactive Map", "📈 Cluster Analysis", "💾 Download"]
@@ -329,45 +181,52 @@ else:
         with col3:
             arrest_rate = (
                 filtered_df["Arrest"].sum() / len(filtered_df) * 100
-                if len(filtered_df) > 0
+                if len(filtered_df) > 0 and "Arrest" in filtered_df.columns
                 else 0
             )
             st.metric("Arrest Rate", f"{arrest_rate:.1f}%")
 
         with col4:
             avg_severity = (
-                filtered_df["Crime_Severity"].mean() if len(filtered_df) > 0 else 0
+                filtered_df["Crime_Severity"].mean()
+                if len(filtered_df) > 0 and "Crime_Severity" in filtered_df.columns
+                else 0
             )
             st.metric("Avg Severity", f"{avg_severity:.2f}/5")
 
         st.markdown("---")
+
         st.subheader("Cluster Statistics")
 
         if len(filtered_df) > 0:
             cluster_stats = (
                 filtered_df.groupby(selected_algorithm)
                 .agg(
-                    {
-                        "Latitude": "count",
-                        "Arrest": "mean",
-                        "Crime_Severity": "mean",
-                        "Primary Type": lambda x: x.value_counts().index[0],
-                    }
+                    Crime_Count=("Latitude", "count"),
+                    Arrest_Rate=("Arrest", "mean"),
+                    Avg_Severity=("Crime_Severity", "mean"),
+                    Top_Crime_Type=("Primary Type", lambda x: x.value_counts().index[0]),
                 )
                 .reset_index()
             )
 
-            cluster_stats.columns = [
-                "Cluster",
-                "Crime Count",
-                "Arrest Rate",
-                "Avg Severity",
-                "Top Crime Type",
-            ]
-            cluster_stats["Arrest Rate"] = (
-                cluster_stats["Arrest Rate"] * 100
+            cluster_stats["Arrest_Rate"] = (
+                cluster_stats["Arrest_Rate"].fillna(0) * 100
             ).round(2)
-            cluster_stats["Avg Severity"] = cluster_stats["Avg Severity"].round(2)
+            cluster_stats["Avg_Severity"] = (
+                cluster_stats["Avg_Severity"].fillna(0).round(2)
+            )
+
+            cluster_stats = cluster_stats.rename(
+                columns={
+                    selected_algorithm: "Cluster",
+                    "Crime_Count": "Crime Count",
+                    "Arrest_Rate": "Arrest Rate",
+                    "Avg_Severity": "Avg Severity",
+                    "Top_Crime_Type": "Top Crime Type",
+                }
+            )
+
             cluster_stats = cluster_stats.sort_values("Crime Count", ascending=False)
 
             st.dataframe(cluster_stats, use_container_width=True)
@@ -392,9 +251,11 @@ else:
         st.header("Interactive Crime Hotspot Map")
 
         if len(filtered_df) > 0:
+            map_df = filtered_df.copy()
+
             st.info(
-                f"Displaying {len(map_df):,} sampled crime locations "
-                f"from {len(filtered_df):,} filtered records"
+                f"Displaying {len(map_df):,} geo points "
+                f"(from {len(filtered_df):,} filtered records)"
             )
 
             center_lat = map_df["Latitude"].mean()
@@ -436,7 +297,6 @@ else:
                     name=f"Cluster {cluster_id}"
                 ).add_to(m)
 
-                # iterrows + bracket indexing to support column names with spaces
                 for _, row in cluster_data.iterrows():
                     popup_text = f"Cluster: {row[selected_algorithm]}"
                     if "Primary Type" in map_df.columns:
@@ -444,10 +304,14 @@ else:
                     if "Crime_Severity" in map_df.columns:
                         popup_text += f"<br>Severity: {row['Crime_Severity']}"
 
-                    folium.Marker(
+                    folium.CircleMarker(
                         location=[row["Latitude"], row["Longitude"]],
-                        popup=folium.Popup(popup_text, max_width=250),
-                        icon=folium.Icon(color=color, icon="info-sign"),
+                        radius=3,
+                        popup=popup_text,
+                        color=color,
+                        fill=True,
+                        fillColor=color,
+                        fillOpacity=0.6,
                     ).add_to(cluster_group)
 
             folium.LayerControl().add_to(m)
@@ -537,7 +401,9 @@ else:
 
             st.subheader("Arrest Rate Comparison")
 
-            arrest_by_cluster = filtered_df.groupby(selected_algorithm)["Arrest"].mean() * 100
+            arrest_by_cluster = (
+                filtered_df.groupby(selected_algorithm)["Arrest"].mean() * 100
+            )
 
             fig = go.Figure(
                 data=[
@@ -601,13 +467,10 @@ else:
             st.dataframe(download_df.head(100), use_container_width=True)
 
             col1, col2, col3 = st.columns(3)
-
             with col1:
                 st.metric("Total Records", f"{len(download_df):,}")
-
             with col2:
                 st.metric("Clusters", download_df[selected_algorithm].nunique())
-
             with col3:
                 st.metric("Crime Types", download_df["Primary Type"].nunique())
         else:
