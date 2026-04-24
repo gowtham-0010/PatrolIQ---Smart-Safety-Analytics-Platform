@@ -51,7 +51,7 @@ st.markdown("### Visualize high-dimensional crime patterns using PCA and t-SNE")
 # -------------------------------------------------------------------
 # Load preprocessed PCA/t-SNE sample
 # -------------------------------------------------------------------
-DR_SAMPLE_PATH = "artifacts/pca_tsne_sample.csv"
+DR_SAMPLE_PATH = "streamlit_data/pca_tsne_sample.csv"
 
 
 @st.cache_data

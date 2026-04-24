@@ -1,0 +1,15 @@
+artifact_uri: file:///c:/Gowtham/Guvi%20projects/project5%20patrolIQ/notebooks/mlruns/249752583989033085/ce01217c8319497a8965b134b8965cc2/artifacts
+end_time: 1777058278831
+entry_point_name: ''
+experiment_id: '249752583989033085'
+lifecycle_stage: active
+run_id: ce01217c8319497a8965b134b8965cc2
+run_name: PCA_tSNE
+run_uuid: ce01217c8319497a8965b134b8965cc2
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1777058045674
+status: 3
+tags: []
+user_id: smadh
