@@ -13,7 +13,7 @@
 ✅ Chicago crime analysis complete
 
 📱 Live Demo
-PatrolIQ Dashboard (Replace with your actual URL)
+https://patroliq---smart-safety-analytics-platform-jg684oedqzfj9dk9dkk.streamlit.app/
 
 Demo Features:
 
