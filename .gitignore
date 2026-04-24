@@ -12,13 +12,34 @@ env/
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# Data files (VERY IMPORTANT)
-artifacts/*.csv
+# -------------------------------------------------------------------
+# Data files
+# -------------------------------------------------------------------
+# Ignore raw/full datasets (they can be very large)
+data/
 data/*.csv
 
-# ML models (if large)
-#*.pkl
+# -------------------------------------------------------------------
+# Artifacts for Streamlit
+# -------------------------------------------------------------------
+# Ignore everything in artifacts by default...
+artifacts/*
+
+# ...but keep the small, preprocessed samples used by the app
+!artifacts/geo_clustered_sample.csv
+!artifacts/temporal_clustered_sample.csv
+!artifacts/pca_tsne_sample.csv
+!artifacts/processed_crime_data.csv   # main processed dataset for home page (rename if different)
+
+# If you have more small sample CSVs that Streamlit needs, un-ignore them the same way:
+# !artifacts/another_sample.csv
+
+# -------------------------------------------------------------------
+# ML models (optional to track; usually small enough)
+# -------------------------------------------------------------------
+# If you want to KEEP models in Git, comment these out.
 *.joblib
+*.pkl
 
 # OS files
 .DS_Store
@@ -30,6 +51,5 @@ Thumbs.db
 # Streamlit cache
 .streamlit/
 
-data/
+# MLflow tracking directory (can get large)
 mlflow_tracking/
-artifacts/*.csv
