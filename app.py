@@ -1,255 +1,234 @@
-"""
-PatrolIQ - Smart Urban Safety Analytics Platform
-Main Streamlit Application
+# app.py
 
-Author: Machine Learning Engineer
-Date: February 2026
+"""
+PatrolIQ - Smart Safety Analytics Platform
+Main application home page
+
+Final architecture:
+- 01_data_preprocessing.ipynb trains/cleans on FULL dataset
+- Notebook saves a sampled, processed dataset to artifacts/processed_crime_data.csv
+- This app ONLY reads that processed sample (no heavy ETL or training here)
 """
 
-import streamlit as st
+from pathlib import Path
+
 import pandas as pd
-import os
+import streamlit as st
+import plotly.express as px
 
+# -------------------------------------------------------------------
 # Page configuration
+# -------------------------------------------------------------------
 st.set_page_config(
-    page_title="PatrolIQ - Smart Safety Analytics",
+    page_title="PatrolIQ - Smart Safety Analytics Platform",
     page_icon="🚨",
     layout="wide",
-    initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
-st.markdown("""
-<style>
-    .main {
-        background-color: #0e1117;
-        color: #fafafa;
-    }
-    .stApp {
-        background-color: #0e1117;
-    }
-    .main-header {
-        text-align: center;
-        padding: 2rem 0 1rem 0;
-    }
-    .main-header h1 {
-        font-size: 3.5rem;
-        font-weight: 700;
-        color: #1f77b4;
-        margin-bottom: 0.5rem;
-    }
-    .main-header h3 {
-        font-size: 1.5rem;
-        color: #a0a0a0;
-        font-weight: 400;
-    }
-    .mission-card {
-        background: rgba(31, 119, 180, 0.08);
-        border: 1px solid rgba(31, 119, 180, 0.25);
-        border-left: 4px solid #1f77b4;
-        border-radius: 14px;
-        padding: 1.5rem 1.75rem;
-        margin: 1.5rem 0 2rem 0;
-        box-shadow: none;
-    }
-    .mission-card h3 {
-        color: #ffffff;
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin-bottom: 0.85rem;
-    }
-    .mission-card p {
-        color: #d6d6d6;
-        font-size: 1.05rem;
-        line-height: 1.8;
-        margin: 0;
-    }
-    .metric-card {
-        background-color: #1c1f26;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border: 1px solid #2d3748;
-        text-align: center;
-    }
-    .feature-card {
-        background-color: #1c1f26;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border-left: 4px solid #1f77b4;
-        margin-bottom: 1rem;
-    }
-    .footer {
-        text-align: center;
-        padding: 2rem 0;
-        color: #888;
-        font-size: 0.9rem;
-    }
-    hr {
-        border: none;
-        border-top: 1px solid #2d3748;
-        margin: 2rem 0;
-    }
-</style>
-""", unsafe_allow_html=True)
+# -------------------------------------------------------------------
+# Paths
+# -------------------------------------------------------------------
+# Base directory = directory containing this app.py
+BASE_DIR = Path(__file__).resolve().parent
+PROCESSED_PATH = BASE_DIR / "artifacts" / "processed_crime_data.csv"
 
-# Main header
-st.markdown("""
-<div class="main-header">
-    <h1>🚨 PatrolIQ</h1>
-    <h3>Smart Urban Safety Analytics Platform</h3>
-</div>
-""", unsafe_allow_html=True)
+# -------------------------------------------------------------------
+# Data loading
+# -------------------------------------------------------------------
+@st.cache_data
+def load_processed_data(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        # Debug info to help when deployed
+        st.error(
+            f"Processed dataset not found at: {path}\n"
+            "Please run 01_data_preprocessing.ipynb locally and commit "
+            "artifacts/processed_crime_data.csv."
+        )
+        st.info(f"Current working directory: {Path.cwd()}")
+        st.info(f"Files in artifacts/: {list((BASE_DIR / 'artifacts').glob('*'))}")
+        return pd.DataFrame()
+
+    df = pd.read_csv(path)
+
+    # Optional: parse dates if present
+    for col in ["Date", "DateTime"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+
+    return df
+
+
+df_processed = load_processed_data(PROCESSED_PATH)
+
+# -------------------------------------------------------------------
+# Header
+# -------------------------------------------------------------------
+st.markdown(
+    """
+    <div style="text-align:center; margin-bottom: 2rem;">
+        <h1 style="margin-bottom:0.25rem;">🚨 PatrolIQ</h1>
+        <h3 style="color:#9ca3af; font-weight:400; margin-top:0;">
+            Smart Urban Safety Analytics Platform
+        </h3>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # Mission section
-st.markdown("""
-<div class="mission-card">
-    <h3>🎯 Mission</h3>
-    <p>
-        Leverage unsupervised machine learning to analyze crime patterns and optimize
-        police resource allocation in Chicago. This platform provides actionable insights
-        to make cities safer through data-driven decisions.
-    </p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    """
+    <div style="
+        background: rgba(31, 41, 55, 0.85);
+        border-radius: 14px;
+        padding: 1.75rem 2rem;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        margin-bottom: 2rem;
+    ">
+        <h3 style="margin: 0 0 0.75rem 0; color: #e5e7eb;">🎯 Mission</h3>
+        <p style="margin: 0; color: #d1d5db; line-height: 1.75;">
+            Leverage unsupervised machine learning to analyze crime patterns and optimize
+            police resource allocation in Chicago. This platform provides actionable
+            insights to make cities safer through data-driven decisions.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-st.markdown("---")
-
-# Platform Overview
-st.markdown("## 📊 Platform Overview")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.markdown("""
-    ### 🗺️ Geographic Analysis
-    - Crime Hotspot Identification
-    - Cluster-based Zone Mapping
-    - Interactive Geographic Visualization
-    - Police District Analysis
-    """)
-
-with col2:
-    st.markdown("""
-    ### ⏰ Temporal Analysis
-    - Time-Based Pattern Discovery
-    - Peak Crime Hour Detection
-    - Seasonal Trend Analysis
-    - Weekend vs Weekday Patterns
-    """)
-
-with col3:
-    st.markdown("""
-    ### 🔍 Dimensionality Reduction
-    - PCA for Feature Compression
-    - t-SNE for Pattern Visualization
-    - High-Dimensional Data Exploration
-    - Cluster Separation Analysis
-    """)
-
-st.markdown("---")
-
-# Dataset Statistics
-st.markdown("## 📈 Dataset Statistics")
-
-# Load processed data if available
-PROCESSED_DATA_PATH = 'data/processed/chicago_crimes_processed.csv'
-
-if os.path.exists(PROCESSED_DATA_PATH):
-    try:
-        df = pd.read_csv(PROCESSED_DATA_PATH)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Records", f"{len(df):,}")
-        
-        with col2:
-            if 'Primary Type' in df.columns:
-                st.metric("Crime Types", df['Primary Type'].nunique())
-            else:
-                st.metric("Crime Types", "N/A")
-        
-        with col3:
-            if 'District' in df.columns:
-                st.metric("Districts", df['District'].nunique())
-            else:
-                st.metric("Districts", "N/A")
-        
-        with col4:
-            if 'Arrest' in df.columns:
-                arrest_rate = (df['Arrest'].sum() / len(df) * 100) if len(df) > 0 else 0
-                st.metric("Arrest Rate", f"{arrest_rate:.1f}%")
-            else:
-                st.metric("Arrest Rate", "N/A")
-    
-    except Exception as e:
-        st.warning(f"Could not load processed data: {str(e)}")
-        st.info("Please run the preprocessing notebook first.")
+# -------------------------------------------------------------------
+# Content depending on data
+# -------------------------------------------------------------------
+if df_processed.empty:
+    st.warning(
+        "No processed data available. Once you generate and commit "
+        "`artifacts/processed_crime_data.csv`, this page will show "
+        "high-level metrics and overview charts."
+    )
 else:
-    st.info("Processed dataset not found. Please run `01_data_preprocessing.ipynb` first.")
+    st.success(f"✅ Loaded {len(df_processed):,} processed crime records")
 
-st.markdown("---")
+    # Sidebar filters (keep light – heavy filtering is on pages)
+    st.sidebar.header("🔍 Quick Filters")
 
-# Technology Stack
-st.markdown("## 🛠️ Technology Stack")
+    crime_types = (
+        sorted(df_processed["Primary Type"].dropna().unique())
+        if "Primary Type" in df_processed.columns
+        else []
+    )
+    selected_crimes = st.sidebar.multiselect(
+        "Crime Type",
+        crime_types,
+        default=crime_types[:5] if crime_types else [],
+    )
 
-col1, col2 = st.columns(2)
+    if "District" in df_processed.columns:
+        districts = sorted(df_processed["District"].dropna().unique())
+        selected_districts = st.sidebar.multiselect(
+            "District",
+            districts,
+            default=[],
+        )
+    else:
+        selected_districts = []
 
-with col1:
-    st.markdown("""
-    ### Machine Learning & Analytics
-    - **Python** - Core programming language
-    - **scikit-learn** - Clustering and dimensionality reduction
-    - **pandas** - Data manipulation
-    - **NumPy** - Numerical computations
-    - **MLflow** - Experiment tracking
-    """)
+    filtered_df = df_processed.copy()
 
-with col2:
-    st.markdown("""
-    ### Visualization & Deployment
-    - **Streamlit** - Interactive web dashboard
-    - **Plotly** - Interactive charts
-    - **Folium** - Geographic maps
-    - **Matplotlib / Seaborn** - Statistical visualization
-    - **Jupyter Notebook** - Analysis workflow
-    """)
+    if selected_crimes:
+        filtered_df = filtered_df[filtered_df["Primary Type"].isin(selected_crimes)]
+    if selected_districts and "District" in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df["District"].isin(selected_districts)]
 
-st.markdown("---")
+    # -------------------------------------------------------------------
+    # KPI cards
+    # -------------------------------------------------------------------
+    col1, col2, col3, col4 = st.columns(4)
 
-# Navigation Guide
-st.markdown("## 🧭 Navigation Guide")
+    with col1:
+        st.metric("Total Crimes (sample)", f"{len(filtered_df):,}")
 
-st.markdown("""
-Use the sidebar to explore the main analytical modules:
+    with col2:
+        if "Crime_Severity" in filtered_df.columns:
+            avg_severity = filtered_df["Crime_Severity"].mean()
+            st.metric("Avg Severity", f"{avg_severity:.2f}/5")
+        else:
+            st.metric("Avg Severity", "N/A")
 
-- **Geographic Hotspots** — Analyze spatial crime clusters and hotspot zones.
-- **Temporal Patterns** — Explore hourly, daily, and seasonal crime behavior.
-- **Dimensionality Reduction** — Visualize high-dimensional patterns using PCA and t-SNE.
+    with col3:
+        if "Arrest" in filtered_df.columns and len(filtered_df) > 0:
+            arrest_rate = filtered_df["Arrest"].mean() * 100
+            st.metric("Arrest Rate", f"{arrest_rate:.1f}%")
+        else:
+            st.metric("Arrest Rate", "N/A")
 
-Each page provides interactive filtering, visual analysis, and downloadable outputs.
-""")
+    with col4:
+        if "District" in filtered_df.columns:
+            st.metric("Districts Covered", filtered_df["District"].nunique())
+        else:
+            st.metric("Districts Covered", "N/A")
 
-st.markdown("---")
+    st.markdown("---")
 
-# Project Workflow
-st.markdown("## 🔄 Analysis Workflow")
+    # -------------------------------------------------------------------
+    # Overview charts
+    # -------------------------------------------------------------------
+    tab1, tab2 = st.tabs(["📊 Crime Breakdown", "📈 Temporal Trend"])
 
-st.markdown("""
-1. **Data Preprocessing** — Clean and prepare raw Chicago crime data.
-2. **Exploratory Data Analysis** — Understand patterns and distributions.
-3. **Feature Engineering** — Create ML-ready spatial and temporal features.
-4. **Geographic Clustering** — Identify crime hotspots using clustering algorithms.
-5. **Temporal Clustering** — Discover recurring time-based crime patterns.
-6. **Dimensionality Reduction** — Reduce complexity and visualize hidden structure.
-7. **Dashboard Deployment** — Interact with results using Streamlit.
-""")
+    with tab1:
+        st.subheader("Top Crime Types")
+        if "Primary Type" in filtered_df.columns:
+            ct = (
+                filtered_df["Primary Type"]
+                .value_counts()
+                .reset_index(name="Count")
+                .rename(columns={"index": "Primary Type"})
+                .head(15)
+            )
+            fig = px.bar(
+                ct,
+                x="Primary Type",
+                y="Count",
+                title="Top Crime Types (sample)",
+            )
+            fig.update_layout(xaxis_tickangle=-45, height=450)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Column 'Primary Type' not found in processed dataset.")
 
-# Footer
-st.markdown("""
-<div class="footer">
-    <p><strong>PatrolIQ</strong> | Smart Urban Safety Analytics Platform</p>
-    <p>Built with ❤️ using Python, Streamlit, and Machine Learning</p>
-    <p>Data Source: Chicago Data Portal - Crimes 2001 to Present</p>
-</div>
-""", unsafe_allow_html=True)
+    with tab2:
+        st.subheader("Crimes Over Time")
+        if "Date" in filtered_df.columns:
+            ts = (
+                filtered_df.set_index("Date")
+                .resample("W")
+                .size()
+                .reset_index(name="Count")
+            )
+            fig = px.line(
+                ts,
+                x="Date",
+                y="Count",
+                title="Weekly Crime Count (sample)",
+            )
+            fig.update_layout(height=450)
+            st.plotly_chart(fig, use_container_width=True)
+        elif "DateTime" in filtered_df.columns:
+            ts = (
+                filtered_df.set_index("DateTime")
+                .resample("W")
+                .size()
+                .reset_index(name="Count")
+            )
+            fig = px.line(
+                ts,
+                x="DateTime",
+                y="Count",
+                title="Weekly Crime Count (sample)",
+            )
+            fig.update_layout(height=450)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No datetime column ('Date' or 'DateTime') found for temporal trend.")
+
+    st.markdown("---")
+    st.caption("PatrolIQ · Smart Urban Safety Analytics Platform")
